@@ -1,7 +1,23 @@
 #include "buildcfg.h"
 #include "kxuserp.h"
 
-#include <BluetoothAPIs.h>
+//
+// The Windows 7.1 SDK BluetoothAPIs.h contains malformed
+// "#pragma deprecate" directives which produce C4068 warnings.
+// KxUser is built with /WX, so do not include that header here.
+//
+// The six classic APIs below only need opaque structure pointers and
+// HANDLE-based enumeration types, so forward-declare the types locally.
+// This also avoids introducing conflicting declarations from the
+// Windows 7.1 SDK Bluetooth header.
+//
+
+typedef struct _BLUETOOTH_DEVICE_SEARCH_PARAMS BLUETOOTH_DEVICE_SEARCH_PARAMS;
+typedef struct _BLUETOOTH_DEVICE_INFO BLUETOOTH_DEVICE_INFO;
+typedef struct _BLUETOOTH_FIND_RADIO_PARAMS BLUETOOTH_FIND_RADIO_PARAMS;
+
+typedef HANDLE HBLUETOOTH_DEVICE_FIND;
+typedef HANDLE HBLUETOOTH_RADIO_FIND;
 
 //
 // Classic Bluetooth APIs are implemented by Windows in bthprops.cpl.
