@@ -49,11 +49,11 @@ GetBthPropsModule(
 
 KXUSERAPI HBLUETOOTH_DEVICE_FIND WINAPI
 BluetoothFindFirstDevice(
-    const BLUETOOTH_DEVICE_SEARCH_PARAMS *pbtsp,
+    BLUETOOTH_DEVICE_SEARCH_PARAMS *pbtsp,
     BLUETOOTH_DEVICE_INFO *pbtdi)
 {
     typedef HBLUETOOTH_DEVICE_FIND (WINAPI *PFN_BluetoothFindFirstDevice)(
-        const BLUETOOTH_DEVICE_SEARCH_PARAMS *,
+        BLUETOOTH_DEVICE_SEARCH_PARAMS *,
         BLUETOOTH_DEVICE_INFO *);
 
     HMODULE Module;
@@ -128,11 +128,11 @@ BluetoothFindDeviceClose(
 
 KXUSERAPI HBLUETOOTH_RADIO_FIND WINAPI
 BluetoothFindFirstRadio(
-    const BLUETOOTH_FIND_RADIO_PARAMS *pbtfrp,
+    BLUETOOTH_FIND_RADIO_PARAMS *pbtfrp,
     HANDLE *phRadio)
 {
     typedef HBLUETOOTH_RADIO_FIND (WINAPI *PFN_BluetoothFindFirstRadio)(
-        const BLUETOOTH_FIND_RADIO_PARAMS *,
+        BLUETOOTH_FIND_RADIO_PARAMS *,
         HANDLE *);
 
     HMODULE Module;
