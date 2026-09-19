@@ -30,7 +30,7 @@ code and unrelated compatibility components are kept unchanged.
 - ✅ Classic Bluetooth API wrapper implementation
 - ✅ `KxUser` exports for the six targeted APIs
 - ✅ GitHub Actions build completed successfully
-- 🧪 Runtime validation on Windows 7 in progress
+- ✅ Classic Bluetooth API runtime validation completed successfully on Windows 7
 
 ## Why This Fork Exists
 
