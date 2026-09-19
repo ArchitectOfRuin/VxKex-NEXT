@@ -188,6 +188,11 @@ NTSTATUS KexRewriteImageImportDirectory(
 	IN	PCUNICODE_STRING		BaseImageName,
 	IN	PCUNICODE_STRING		FullImageName);
 
+NTSTATUS KexRewriteKernelDllImageImportDirectory(
+	IN	PVOID					ImageBase,
+	IN	PCUNICODE_STRING		BaseImageName,
+	IN	PCUNICODE_STRING		FullImageName);
+
 NTSTATUS KexRewriteDllPath(
 	IN	PCUNICODE_STRING	DllPath,
 	OUT	PUNICODE_STRING		RewrittenDllNameOut);
@@ -267,6 +272,8 @@ NTSTATUS KexRtlInitializeKsec(
 //
 // syscall.c
 //
+
+EXTERN DWORD SSN_NtOpenKey;
 
 BOOL InitializeSsnForAllSyscallFunctions(
 	VOID);

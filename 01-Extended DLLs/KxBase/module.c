@@ -233,13 +233,52 @@ KXBASEAPI HMODULE WINAPI Ext_LoadLibraryExW(
 {
 	HMODULE ModuleHandle;
 	BOOLEAN ReEntrant;
+	DWORD LoadLibrarySearchMarks = 0xFFFFFF00ul;
 	STATIC BOOL (WINAPI *SetDefaultDllDirectories) (ULONG) = NULL;
+
+	//
+	// This is used to fix a bug in GDI+ which caused GdipCreateFontFromLogfontA/W
+	// failed with NotTrueTypeFont error and breaks any text rendering after.
+	//
+	// The following analytics are based on GdiPlus.dll 6.1.7601.26213, 32-bits, PAGE_SIZE = 4KB.
+	//
+	// When you call GdiPlus!GdipCreateFontFromLogfontA/W for the first time,
+	// GdiPlus will try to load the font information from registry key.
+	// In order to do that, they must load the advapi32.dll dynamically
+	// so they can call RegOpenKeyExW, since it is not statically imported.
+	//
+	// But this is what they do in GdiPlus!DLpLoadRegistryDll (GdiPlus+0x13d849):
+	// g_hInstRegistryDLL = LoadLibraryExW(L"API-MS-Win-Core-LocalRegistry-L1-1-0.dll", 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+	//
+	// As you can see, GdiPlus!DLpLoadRegistryDll called LoadLibraryExW with LOAD_WITH_ALTERED_SEARCH_PATH,
+	// and a relative path specified.
+	// The irony is that there is a note written by Microsoft itself in 
+	// https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryexw:
+	// "The behavior is undefined when LOAD_WITH_ALTERED_SEARCH_PATH flag is set, and lpFileName specifies a relative path."
+	//
+	// When the application has already called SetDefaultDllDirectories or so on, 
+	// and then call LoadLibraryExW with LOAD_WITH_ALTERED_SEARCH_PATH specified,
+	// the loader will turn to a special "strict" mode and check if the input file path is not a relative path,
+	// and if unfortunately it is, KernelBase!LoadLibraryExW will fail with ERROR_INVALID_PARAMETER, 
+	// which caused GdiPlus failed to initialize the font information,
+	// and then returned the error code 16 (NotTrueTypeFont).
+	//
+
+	if (Flags & LOAD_WITH_ALTERED_SEARCH_PATH) {
+		if (AshModuleBaseNameIs(ReturnAddress(), L"GdiPlus.dll") &&
+			StringEqualI(FileName, L"API-MS-Win-Core-LocalRegistry-L1-1-0.dll")) {
+			Flags &= ~LOAD_WITH_ALTERED_SEARCH_PATH;
+		}
+	}
 
 	InterceptedKernelBaseLoaderCallEntry(&ReEntrant);
 	BasepGetDllDirectoryProcedure("SetDefaultDllDirectories", (PPVOID) &SetDefaultDllDirectories);
 	if (SetDefaultDllDirectories) {
-		if (KexShouldUseWorkaroundsForNewerWindows()) {
-			UNICODE_STRING DllName, RewrittenDll;
+		BOOL DatafileFlagSpecified = (Flags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)) != 0;
+		BOOL RewrittenOnNewerWindows = FALSE;
+		UNICODE_STRING RewrittenDll;
+		if (KexShouldUseWorkaroundsForNewerWindows() && !DatafileFlagSpecified) {
+			UNICODE_STRING DllName;
 			NTSTATUS Status;
 			RtlInitUnicodeString(&DllName, FileName);
 
@@ -250,12 +289,25 @@ KXBASEAPI HMODULE WINAPI Ext_LoadLibraryExW(
 			ASSERT(NT_SUCCESS(Status) ||
 				Status == STATUS_STRING_MAPPER_ENTRY_NOT_FOUND ||
 				Status == STATUS_DLL_NOT_IN_SYSTEM_ROOT);
-			if (NT_SUCCESS(Status)) FileName = RewrittenDll.Buffer;
+			if (NT_SUCCESS(Status)) {
+				Flags &= ~LOAD_WITH_ALTERED_SEARCH_PATH;
+				RewrittenOnNewerWindows = TRUE;
+				FileName = RewrittenDll.Buffer;
+			}
 		}
 		ModuleHandle = LoadLibraryExW(FileName, FileHandle, Flags);
+		if (!ModuleHandle && GetLastError() == ERROR_MOD_NOT_FOUND && RewrittenOnNewerWindows) {
+			WCHAR DllFullPath[MAX_PATH] = {0};
+			Flags &= ~LOAD_LIBRARY_REQUIRE_SIGNED_TARGET;
+			Flags &= ~LOAD_LIBRARY_SAFE_CURRENT_DIRS;
+			Flags &= ~LoadLibrarySearchMarks;
+			StringCchCopy(DllFullPath, MAX_PATH, KexData->Kex3264DirPath.Buffer);
+			StringCchCat(DllFullPath, MAX_PATH, L"\\");
+			StringCchCat(DllFullPath, MAX_PATH, FileName);
+			ModuleHandle = LoadLibraryExW(DllFullPath, FileHandle, Flags);
+		}
 	} else {
 		ULONG OriginalFlags = Flags;
-		DWORD LoadLibrarySearchMarks = 0xFFFFFF00ul;
 
 		ModuleHandle = NULL;
 		if (((0xFFFFE000 | 0x00000004) & Flags) || ((LOAD_WITH_ALTERED_SEARCH_PATH & Flags) && (LoadLibrarySearchMarks & Flags)) || FileName == NULL || FileHandle) {
@@ -275,10 +327,13 @@ KXBASEAPI HMODULE WINAPI Ext_LoadLibraryExW(
 				for (Directory = (PDLL_DIRECTORY_DATA)DllDirectoryData.Next; Directory && Directory->String != NULL; Directory = (PDLL_DIRECTORY_DATA)Directory->Next) {
 					SIZE_T NewFileNameLength = wcslen(FileName) + wcslen(Directory->String) + 2;
 					PWSTR NewFileName = SafeAlloc(WCHAR, NewFileNameLength);
-					StringCchCopy(NewFileName, NewFileNameLength, Directory->String);
-					StringCchCat(NewFileName, NewFileNameLength, L"\\");
-					StringCchCat(NewFileName, NewFileNameLength, FileName);
-					ModuleHandle = LoadLibraryExW(NewFileName, FileHandle, Flags);
+					if (NewFileName) {
+						StringCchCopy(NewFileName, NewFileNameLength, Directory->String);
+						StringCchCat(NewFileName, NewFileNameLength, L"\\");
+						StringCchCat(NewFileName, NewFileNameLength, FileName);
+						ModuleHandle = LoadLibraryExW(NewFileName, FileHandle, Flags);
+						SafeFree(NewFileName);
+					}
 					if (ModuleHandle || GetLastError() != ERROR_MOD_NOT_FOUND) break;
 				}
 
